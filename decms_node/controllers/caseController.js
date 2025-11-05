@@ -12,7 +12,31 @@ async function getCases(req, res, next) {
 // Public listing variant
 async function getCasesPublic(req, res, next) {
   try {
-    const [rows] = await db.query('SELECT case_id, case_title, description, assigned_to, status, created_at FROM cases ORDER BY created_at DESC');
+    // Public view: minimal fields + friendly case_number and assigned_to_name (no internal IDs)
+    // Detect whether users table has a single 'name' column
+    const [cols] = await db.execute(
+      `SELECT COUNT(*) AS has_name
+         FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'users'
+          AND COLUMN_NAME = 'name'`
+    );
+    const useSingleName = cols[0]?.has_name > 0;
+    const nameExpr = useSingleName
+      ? 'u.name'
+      : "CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))";
+
+    const [rows] = await db.execute(
+      `SELECT c.case_id,
+              c.case_title,
+              c.status,
+              c.created_at,
+              ${nameExpr} AS assigned_to_name,
+              CONCAT('CS-', LPAD(c.case_id, 4, '0')) AS case_number
+         FROM cases c
+         LEFT JOIN users u ON c.assigned_to = u.user_id
+        ORDER BY c.created_at DESC`
+    );
     res.json(rows);
   } catch (err) { next(err); }
 }
