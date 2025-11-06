@@ -6,7 +6,8 @@ async function createReport(req, res, next) {
   const file = req.file;
   if (!evidence_id || !findings) return res.status(400).json({ msg: 'Missing fields' });
   try {
-    const file_path = file ? path.relative(process.cwd(), file.path) : null;
+    // Store just the filename to make building a public URL straightforward
+    const file_path = file ? file.filename : null;
     const [result] = await db.execute('INSERT INTO analysis_reports (evidence_id, analyst_id, findings, report_file, created_at) VALUES (:evidence_id, :analyst_id, :findings, :report_file, NOW())', { evidence_id, analyst_id: req.user.user_id, findings, report_file: file_path });
     // Optionally call stored procedure to generate a summary (example)
     // await db.execute('CALL sp_generate_analysis_summary(?)', [evidence_id]);
@@ -47,7 +48,16 @@ async function getReportsPublic(req, res, next) {
         ORDER BY r.created_at DESC
         LIMIT 200`
     );
-    res.json(rows);
+    // Attach a public URL for the file if present
+    const mapped = rows.map((r) => {
+      let file_url = null;
+      if (r.report_file) {
+        const filename = path.basename(r.report_file);
+        file_url = `/uploads/${filename}`;
+      }
+      return { ...r, file_url };
+    });
+    res.json(mapped);
   } catch (err) { next(err); }
 }
 
@@ -128,7 +138,8 @@ async function createReportPublic(req, res, next) {
       }
     }
 
-    const file_path = file ? path.relative(process.cwd(), file.path) : null;
+    // Store only filename
+    const file_path = file ? file.filename : null;
     const [result] = await conn.execute(
       'INSERT INTO analysis_reports (evidence_id, analyst_id, findings, report_file, created_at) VALUES (:evidence_id, :analyst_id, :findings, :report_file, NOW())',
       { evidence_id, analyst_id, findings, report_file: file_path }
