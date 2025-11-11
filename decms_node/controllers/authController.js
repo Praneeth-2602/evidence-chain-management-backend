@@ -10,7 +10,6 @@ async function register(req, res, next) {
   if (!email || !password || !(name || (first_name && last_name) || role)) return res.status(400).json({ msg: 'Missing fields' });
   try {
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
-    // try INSERT with 'name' column first (old schema)
     try {
       const sql = `INSERT INTO users (name, email, password, role, department) VALUES (:name, :email, :password, :role, :department)`;
       const computedName = (name || `${first_name || ''} ${last_name || ''}`.trim()) || null;
@@ -23,7 +22,6 @@ async function register(req, res, next) {
       });
       return res.status(201).json({ msg: 'User created' });
     } catch (inner) {
-      // If name column doesn't exist, try first_name/last_name + password
       if (inner && inner.code === 'ER_BAD_FIELD_ERROR') {
         try {
           const sql2 = `INSERT INTO users (first_name, last_name, email, password, role) VALUES (:first_name, :last_name, :email, :password, :role)`;
@@ -36,11 +34,8 @@ async function register(req, res, next) {
           });
           return res.status(201).json({ msg: 'User created' });
         } catch (err2) {
-          // try password_hash column and role_id fallback
           if (err2 && err2.code === 'ER_BAD_FIELD_ERROR') {
-            // try inserting with password_hash and possibly role_id
             try {
-              // if role is a string but table uses role_id, try to find/create role
               let roleId = null;
               if (role) {
                 const [rrows] = await db.execute('SELECT role_id FROM roles WHERE role_name = ?', [role]);
@@ -81,7 +76,6 @@ async function login(req, res, next) {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ msg: 'Missing email or password' });
   try {
-    // detect which columns exist on the users table, then select only those
     const schema = process.env.DB_NAME || process.env.MYSQL_DATABASE || null;
     let cols = new Set();
     try {
@@ -92,10 +86,10 @@ async function login(req, res, next) {
         );
         colRows.forEach(r => cols.add(r.COLUMN_NAME));
       } else {
-        // fallback: try a safe select of a few known columns and catch errors
+        console.log('No schema/database name detected; skipping metadata lookup');
       }
     } catch (e) {
-      // ignore metadata errors and fall back to a permissive select attempt
+      console.error('Error fetching user columns:', e);
     }
 
     const selectParts = ['user_id', 'email'];
@@ -107,31 +101,27 @@ async function login(req, res, next) {
     if (cols.has('role')) selectParts.push('role');
     if (cols.has('role_id')) selectParts.push('role_id');
 
-    // Always include something for password; if none detected, we'll attempt both later and fail gracefully
     const selectClause = selectParts.join(', ');
     const [rows] = await db.execute(`SELECT ${selectClause} FROM users WHERE email = :email LIMIT 1`, { email });
     const user = rows[0];
     if (!user) return res.status(401).json({ msg: 'Invalid credentials' });
 
-    // determine stored hash (support 'password' or 'password_hash')
     const storedHash = user.password || user.password_hash;
     if (!storedHash) return res.status(500).json({ msg: 'No password column found for user' });
 
     const match = await bcrypt.compare(password, storedHash);
     if (!match) return res.status(401).json({ msg: 'Invalid credentials' });
 
-    // resolve role: prefer role string, otherwise try role_id lookup
     let roleName = user.role;
     if (!roleName && user.role_id) {
       try {
         const [rrows] = await db.execute('SELECT role_name FROM roles WHERE role_id = :id LIMIT 1', { id: user.role_id });
         if (rrows && rrows[0]) roleName = rrows[0].role_name;
       } catch (e) {
-        // ignore and leave roleName undefined
+        console.error('Error fetching role name:', e);
       }
     }
 
-    // normalize display name
     const displayName = user.name || ((user.first_name || '') + (user.last_name ? ' ' + user.last_name : '')).trim();
 
     const payload = { user_id: user.user_id, email: user.email, role: roleName };

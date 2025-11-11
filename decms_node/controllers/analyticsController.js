@@ -22,7 +22,7 @@ async function monthlyTransfers(req, res, next) {
 }
 
 module.exports = { casesByStatus, evidenceByTypeAndStatus, monthlyTransfers };
- 
+
 // Admin: Access logs listing
 async function accessLogs(req, res, next) {
   try {
