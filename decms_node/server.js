@@ -44,6 +44,16 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// version
+app.get('/version', (req, res) => {
+  try {
+    const pkg = require('./package.json');
+    res.json({ name: pkg.name, version: pkg.version, description: pkg.description });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to read package metadata' });
+  }
+});
+
 // generic error handler
 app.use((err, req, res, next) => {
   console.error(err);
