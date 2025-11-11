@@ -3,6 +3,7 @@ const express = require('express');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
+const logger = require('./utils/logger');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -56,10 +57,10 @@ app.get('/version', (req, res) => {
 
 // generic error handler
 app.use((err, req, res, next) => {
-  console.error(err);
+  logger.error('unhandled_error', { error: err.message });
   res.status(err.status || 500).json({ error: err.message || 'Internal Server Error' });
 });
 
 app.listen(PORT, () => {
-  console.log(`DECMS Node backend listening on http://localhost:${PORT}`);
+  logger.info('server_started', { port: PORT });
 });
